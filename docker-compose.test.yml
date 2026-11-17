@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  users:
+    build: ./servicios-base/users
+    ports: ["8001:8000"]
+    environment:
+      - MONGODB_URL=mongodb://users-mongodb:27017
+    restart: "no"
+
+  users-mongodb:
+    image: mongo:7
+
+  channels:
+    build: ./servicios-base/channels
+    ports: ["8002:8000"]
+    environment:
+      - MONGODB_URL=mongodb://channels-mongodb:27017
+    restart: "no"
+
+  channels-mongodb:
+    image: mongo:7
+
+  messages:
+    build: ./servicios-base/messages
+    ports: ["8003:8000"]
+    environment:
+      - USERS_URL=http://users:8000
+      - CHANNELS_URL=http://channels:8000
+      - MONGODB_URL=mongodb://messages-mongodb:27017
+    depends_on:
+      - users
+      - channels
+    restart: "no"
+
+  messages-mongodb:
+    image: mongo:7
+
+  profiles:
+    build: ./profiles
+    ports: ["8006:8000"]
+    environment:
+      - USERS_URL=http://users:8000
+      - MONGODB_URL=mongodb://profiles-mongodb:27017
+      - AVATARS_DIR=/avatars
+      - PUBLIC_URL=http://localhost:8006
+    depends_on:
+      - users
+    restart: "no"
+
+  profiles-mongodb:
+    image: mongo:7
+
+volumes:
+  users-data:
+  channels-data:
+  messages-data:
+  profiles-data:
+
+networks:
+  default:
+    name: microsvcs-test

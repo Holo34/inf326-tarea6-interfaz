@@ -1,104 +1,100 @@
-# Tarea Unidad 6: Interfaz + API Gateway
+# Tarea Unidad 7: Control de Calidad y Pruebas Automatizadas
 
-Interfaz web para el chat del curso. Usa el chat base (users, channels, messages), nuestro microservicio **profiles** y los microservicios de otros dos equipos: **media** y **polls**.
+Suite de pruebas automatizadas para el microservicio **profiles**
 
-Esta entrega se ejecuta localmente con docker-compose, como pide el enunciado de la unidad. No se desplegó en el cluster de Kubernetes. El microservicio profiles sí se desplegó en Kubernetes en la entrega anterior.
-
-La interfaz **solo se comunica con el API Gateway** (GraphQL). El gateway llama a cada microservicio mediante su API REST pública y junta los datos que necesita cada vista.
-
-### [Link al video](https://drive.google.com/file/d/1ad0ISkUbYuPreGeJ2gvAXZiorJiw1usS/view?usp=sharing)
+Esta entrega implementa pruebas de servicio (casos exitosos y de error), aislamiento de base de datos en memoria, verificación de contrato con el servicio `users` y pruebas de integración orquestadas con Docker Compose.
 
 ```
-                 ┌──────────────┐
-  Navegador ───▶ │  Interfaz    │  React + Chakra UI + Apollo   (localhost:3000)
-                 └──────┬───────┘
-                        │ GraphQL
-                 ┌──────▼───────┐
-                 │ API Gateway  │  Ariadne + FastAPI            (localhost:8080/graphql/)
-                 └──────┬───────┘
-        REST ┌──────────┼──────────┬───────────┬──────────┬──────────┐
-             ▼          ▼          ▼           ▼          ▼          ▼
-          users     channels   messages    profiles     media      polls
-         (base)     (base)     (base)      (nuestro)  (equipo)   (equipo)
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                       Suite de Pruebas (pytest)                     │
+  ├───────────────────────────────┬─────────────────────────────────────┤
+  │  Pruebas de Servicio          │  Pruebas de Contrato                │
+  │  (profiles/tests/             │  (profiles/tests/                   │
+  │   test_profiles.py)           │   test_contract.py)                 │
+  │                               │                                     │
+  │  • TestClient (FastAPI)       │  • Valida contrato HTTP de users    │
+  │  • BD aislada con mongomock   │    (/api/v1/users/{id})             │
+  └───────────────────────────────┴─────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                 Prueba de Integración (Docker Compose)              │
+  │                      (docker-compose.test.yml)                      │
+  ├─────────────┬─────────────┬─────────────┬─────────────┬─────────────┤
+  │    users    │  channels   │  messages   │  profiles   │  MongoDBs   │
+  │   (base)    │   (base)    │   (base)    │  (nuestro)  │  (aisladas) │
+  └─────────────┴─────────────┴─────────────┴─────────────┴─────────────┘
 ```
 
-## Cómo ejecutarlo
+## Cómo ejecutar las pruebas
+
+### 1. Pruebas de servicio y contrato (aisladas)
+
+Desde la carpeta `profiles/`, activar el entorno virtual e instalar las dependencias:
 
 ```bash
-docker compose up --build
+cd profiles
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-| Qué | URL |
-| --- | --- |
-| **Interfaz** | http://localhost:3000 |
-| **API Gateway** (explorador GraphQL) | http://localhost:8080/graphql/ |
-| Swagger de users / channels / messages | http://localhost:8001/docs · 8002 · 8003 |
-| Swagger de polls / media / profiles | http://localhost:8004/docs · 8005 · 8006 |
+Ejecutar la suite completa con `pytest`:
 
-Todos los contenedores quedan en la red de docker-compose **`microsvcs`**.
+```bash
+pytest -v
+```
 
-Para apagar: `docker compose down`. Para borrar también los datos: `docker compose down -v`.
+### 2. Prueba de integración con Docker Compose
 
-## Estructura del repositorio
+Desde la raíz del proyecto, levantar los servicios base junto con `profiles` y sus bases de datos de prueba:
 
-| Carpeta | Contenido | ¿Quién lo hizo? |
+```bash
+docker compose -f docker-compose.test.yml up --build
+```
+
+| Servicio | Puerto local | Descripción |
 | --- | --- | --- |
-| `interface/` | Interfaz web (React + Chakra UI + Apollo Client) | Esta entrega |
-| `api-gateway/` | API Gateway GraphQL (Ariadne + FastAPI) | Esta entrega |
-| `profiles/` | Microservicio de perfiles (entrega anterior) | Nuestro equipo |
-| `servicios-base/` | users, channels y messages | Profesor (chat base) |
-| `servicios-externos/media/` | Archivos adjuntos por canal | Otro equipo, **sin modificar** |
-| `servicios-externos/polls/` | Encuestas | Otro equipo, **sin modificar** |
+| **users** | http://localhost:8001 | Servicio base de usuarios |
+| **channels** | http://localhost:8002 | Servicio base de canales |
+| **messages** | http://localhost:8003 | Servicio base de mensajes |
+| **profiles** | http://localhost:8006 | Microservicio de perfiles bajo prueba |
 
-Origen del código de los otros equipos:
+Todos los contenedores quedan aislados en la red **`microsvcs-test`**.
 
-- Media: https://github.com/667r/microservicios/tree/codex/media-service/03_Comunicaci%C3%B3n/demo/media
-- Polls: https://github.com/TomasCano-Usm/INF326-Microservicio-Polls
+Para detener y limpiar los contenedores de prueba: `docker compose -f docker-compose.test.yml down -v`.
 
-Los servicios de otros equipos solo se **configuran** con variables de entorno en `docker-compose.yaml`; su código no se tocó. Por ejemplo, a polls se le activa `MESSAGES_ENABLED=true` para que anuncie cada encuesta en el chat.
+## Estructura de pruebas en el repositorio
 
-**Única modificación al chat base:** en `channels` y `messages` del profesor, `insert_one(...)` agregaba un `_id` de MongoDB al diccionario que después se devolvía. Ese `_id` no se puede convertir a JSON, así que crear un canal o un mensaje respondía error 500. Se corrigió insertando una copia (`insert_one(dict(...))`), igual que ya hacía `users`. Está marcado con un comentario `CORRECCIÓN`.
+| Archivo / Carpeta | Contenido | Propósito en la rúbrica |
+| --- | --- | --- |
+| `profiles/tests/conftest.py` | Fixtures de `pytest` y cliente HTTP (`TestClient`) | Aislamiento de la base de datos mediante `mongomock` |
+| `profiles/tests/test_profiles.py` | Pruebas de endpoints (`GET`, `PATCH`, `POST`, `DELETE`) | Dos pruebas por endpoint (caso exitoso y caso de error) |
+| `profiles/tests/test_contract.py` | Verificación de esquema de respuesta de `users` | Prueba de contrato con el chat base sin levantar el sistema |
+| `docker-compose.test.yml` | Orquestación de `users`, `channels`, `messages` y `profiles` | Prueba de integración de extremo a extremo del flujo |
 
-## Funcionalidades de la interfaz
+## Cobertura de pruebas implementadas
 
-| Funcionalidad | Servicios que usa (a través del gateway) |
-| --- | --- |
-| Crear usuarios y elegir con cuál se actúa | users |
-| Crear y listar canales | channels |
-| Ver y enviar mensajes (con nombre, estado y foto del autor) | messages + users + profiles |
-| Ver el perfil de cualquier usuario (clic en su nombre) | profiles |
-| Editar mi perfil: bio, estado, intereses, idiomas y redes | profiles |
-| Subir, cambiar y quitar mi foto de perfil | profiles |
-| Subir, ver, descargar y eliminar archivos del canal | media + users |
-| Crear encuestas, votar, cerrarlas y ver resultados | polls + messages + users |
+### Pruebas de servicio (`test_profiles.py`)
 
-## API Gateway
+Cada endpoint de la API REST de `profiles` cuenta con al menos dos casos de prueba (éxito y error):
 
-Está hecho con Ariadne + FastAPI, igual que la demo del curso. Tiene un archivo de esquema y uno de resolvers por servicio:
+| Endpoint | Caso exitoso | Caso de error |
+| --- | --- | --- |
+| `GET /api/v1/profiles/{user_id}` | `200 OK`: Retorna o crea el perfil por defecto si el usuario existe en `users` | `404 Not Found`: Usuario inexistente en `users` |
+| `PATCH /api/v1/profiles/{user_id}` | `200 OK`: Actualiza campos parciales (`bio`, `status`) | `422 Unprocessable Entity`: Cuerpo vacío sin campos a modificar |
+| `POST /api/v1/profiles/{user_id}/avatar` | `200 OK`: Sube una imagen PNG válida y actualiza `avatar_url` | `415 Unsupported Media Type`: Archivo que no corresponde a imagen válida |
+| `DELETE /api/v1/profiles/{user_id}/avatar` | `200 OK`: Elimina el avatar activo y deja `avatar_url` en `null` | `404 Not Found`: Intento de eliminar avatar cuando el perfil no tiene uno |
 
-- `app/schemas/*.graphql`: tipos, queries y mutations (`chat`, `profiles`, `media`, `polls`).
-- `app/routes/*.py`: resolvers que llaman a cada microservicio.
-- `app/clients.py`: URLs de los servicios y manejo de errores.
+### Estrategia de aislamiento (`conftest.py`)
 
-**Queries:** `listUsers`, `getUser`, `listChannels`, `getChannel`, `listMessages`, `getProfile`, `listAttachments`, `listPolls`, `getPoll`.
+- **Base de datos en memoria:** Se intercepta `pymongo.MongoClient` con `mongomock.MongoClient` antes de inicializar la aplicación FastAPI.
+- **Limpieza automática:** Una fixture con `autouse=True` ejecuta `database.profiles.drop()` antes de cada prueba, garantizando independencia entre tests y cero impacto sobre instancias reales de MongoDB.
 
-**Mutations:** `createUser`, `createChannel`, `sendMessage`, `updateProfile`, `uploadAvatar`, `deleteAvatar`, `uploadAttachment`, `deleteAttachment`, `createPoll`, `votePoll`, `closePoll`.
+### Prueba de contrato (`test_contract.py`)
 
-Decisiones principales:
+- Verifica que el consumidor `profiles` procese correctamente la estructura JSON esperada desde el endpoint `GET /api/v1/users/{id}` del servicio proveedor `users` (validando la presencia y formato de los campos `id` y `display_name`) mediante simulación de respuesta HTTP sin requerir conexión de red ni base de datos externa.
 
-- **Agregación.** Un mensaje trae su `author` (users) y el `profile` del autor (profiles) en una sola consulta. Los usuarios repetidos se piden una sola vez por consulta, como un DataLoader simple.
-- **Encuestas por canal.** Polls no tiene un endpoint para listar encuestas. Cuando se crea una, polls la anuncia en el canal con un mensaje que incluye `Poll ID: <id>`. `listPolls` lee los mensajes del canal, extrae los IDs y consulta cada encuesta en polls.
-- **Lista de usuarios.** users no tiene un endpoint para listar. `listUsers` usa sus eventos públicos `chat.user.created` (`GET /api/v1/events`).
-- **Archivos.** Los archivos viajan en base64 dentro de la mutation de GraphQL. Las imágenes y descargas también pasan por el gateway (`/files/...`), así el navegador nunca habla directo con los microservicios.
-- **Identidad para media.** Media exige el header `X-User-Id`. El gateway lo agrega con el usuario elegido en la interfaz.
-- **Fallos parciales.** Si un servicio se cae, solo falla la parte de la pantalla que lo usa. Por ejemplo, si cae profiles, los mensajes se siguen viendo, pero sin foto.
+## Decisiones principales
 
-## Limitaciones conocidas
-
-- El chat base no tiene autenticación. El "usuario actual" se elige en un selector, sin login, igual que en los otros equipos.
-- Los eventos de users se guardan en memoria. Si se reinicia el contenedor `users`, la lista del selector queda vacía (los usuarios siguen existiendo). Basta con crear un usuario nuevo.
-- Polls no permite saber si un usuario ya votó. Si vota dos veces, la interfaz muestra el error que devuelve polls.
-
-## Declaración de uso de IA
-
-Se usó Claude (Anthropic) como asistente para escribir el API Gateway, la interfaz web, el `docker-compose.yaml` y este README, y para diagnosticar errores al levantar el sistema. El grupo definió el alcance, los requisitos, eligió los servicios de otros equipos a integrar, revisó, ejecutó y verificó el sistema en local, y grabó el video de demostración.
+- **Imágenes de prueba autocontenidas:** En lugar de depender de archivos binarios externos en el repositorio, las pruebas de subida de avatar decodifican en memoria un PNG válido de 1x1 píxel en Base64.
+- **Entorno de integración dedicado:** Se separó `docker-compose.test.yml` del `docker-compose.yaml` principal para levantar únicamente los servicios base (`users`, `channels`, `messages`) junto a `profiles`, sin volúmenes persistentes y con política `restart: "no"`.
