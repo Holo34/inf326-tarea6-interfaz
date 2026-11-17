@@ -1,5 +1,12 @@
 # Tarea Unidad 7: Control de Calidad y Pruebas Automatizadas
 
+Roles:
+---
+Andrés Vial -202373627-9\
+Balduino Diaz -202373626-0\
+Franco Sepulveda -202160584-3
+---
+
 Suite de pruebas automatizadas para el microservicio **profiles**
 
 Esta entrega implementa pruebas de servicio (casos exitosos y de error), aislamiento de base de datos en memoria, verificación de contrato con el servicio `users` y pruebas de integración orquestadas con Docker Compose.
